@@ -1,0 +1,7 @@
+[DB]
+dbname=database_name
+dbuser=database_user_name
+dbhost=database_server(IP_or_name)
+dbpasswd=database_user_password
+
+
