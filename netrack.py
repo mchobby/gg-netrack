@@ -45,6 +45,7 @@ def exp_neaction_code( value ):
 class MyApp:
     def __init__( self, screen ):
         self.screen = screen
+        (self.height, self.width) = screen.getmaxyx()
         self.subwin = [] # SubWin array
         self.create_subwin()
         
@@ -53,7 +54,7 @@ class MyApp:
         self.data = {} # Storing the row sets (or reload_data) into a dictionnary
 
     def create_subwin( self ):
-        self.wpending = curses.newwin(23,20,0,0) # NLines, NCols, begin_y, begin_x
+        self.wpending = curses.newwin(self.height-1,20,0,0) # NLines, NCols, begin_y, begin_x
         self.wpending.border()
         self.wpending.addstr(0,2,"[ Pending ]")
         self.wpending.addstr(1,1,"%i , %i" % self.wpending.getmaxyx() )
@@ -64,12 +65,12 @@ class MyApp:
         #self.wpreparing.addstr(0,2,"[ Prepare ]")
         #self.subwin.append( self.wpreparing )
 
-        self.wshipped = curses.newwin(19,61,0,19)
+        self.wshipped = curses.newwin(19,self.width-self.wpending.getmaxyx()[1],0,self.wpending.getmaxyx()[1])
         self.wshipped.border()
         self.wshipped.addstr(0,2,"[ Shipped ]" )
         self.subwin.append( self.wshipped )
 
-        self.status = curses.newwin(2,80,23,0) # min 2 lines height!!!
+        self.status = curses.newwin(2,self.width,self.height-1,0) # min 2 lines height!!!
 
     def reload_data( self ):
         # Reload the needed data to draw the screen.
@@ -158,7 +159,7 @@ class MyApp:
             win.refresh()
 
     def draw_status( self, refresh_time ):
-        self.status.addstr( 0, 0, " "*80, curses.A_REVERSE )
+        self.status.addstr( 0, 0, " "*self.width, curses.A_REVERSE )
         self.status.addstr( 0, 1, '%1d:%02d' % (refresh_time//60,refresh_time%60), curses.A_REVERSE )
 
         _tinystat = self.data['tinystats']
