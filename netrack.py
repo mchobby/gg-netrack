@@ -2,6 +2,7 @@
 # coding: utf-8
 import curses
 from time import sleep
+import datetime
 from database import *
 from config import *
 
@@ -22,12 +23,12 @@ NEACTION_EXP_GLS = 24
 NEACTION_EXP_POSTE = 28
 NEACTION_EXP_BPS = 30
 
-NE_ACTION_REPRES_GAETAN = 25
-NE_ACTION_REPRES_BRUNO = 26
-NE_ACTION_REPRES_GUY = 27
-NE_ACTION_REPRES_GREG = 29
+NEACTION_REPRES_GAETAN = 25
+NEACTION_REPRES_BRUNO = 26
+NEACTION_REPRES_GUY = 27
+NEACTION_REPRES_GREG = 29
 
-NE_ACTION_CLOTURE = 80
+NEACTION_CLOTURE = 80
 
 def is_repres_neaction( value ):
     return value in (NEACTION_REPRES_GAETAN, NEACTION_REPRES_BRUNO, NEACTION_REPRES_GUY, NEACTION_REPRES_GREG )
@@ -36,7 +37,8 @@ def is_exp_neaction( value ):
     return value in (NEACTION_EXP_PARTSEXPRESS, NEACTION_EXP_GLS, NEACTION_EXP_POSTE, NEACTION_EXP_BPS )
 
 def exp_neaction_code( value ):
-    __code = { NEACTION_EXP_PARTSEXPRESS : 'PAR', NEACTION_EXP_GLS : 'GLS', NEACTION_EXP_POSTE : 'POS', NEACTION_EXP_BPS : 'BPS' }
+    __code = { NEACTION_EXP_PARTSEXPRESS : 'PAR', NEACTION_EXP_GLS : 'GLS', NEACTION_EXP_POSTE : 'POS', NEACTION_EXP_BPS : 'BPS',
+               NEACTION_REPRES_GAETAN : 'GAETAN', NEACTION_REPRES_BRUNO : 'BRUNO', NEACTION_REPRES_GUY : 'GUY', NEACTION_REPRES_GREG : 'GREG' }
     if is_exp_neaction( value ):
         return __code[value]
     else:
@@ -71,6 +73,12 @@ class MyApp:
         self.wpickup.border()
         self.wpickup.addstr( 0, 2, "[ Pickup ]" )
 
+    def wrepres_redraw(self):
+        """ redraw the subwin background """
+        self.wrepres.clear()
+        self.wrepres.border()
+        self.wrepres.addstr( 0, 2, "[ Repres ]" )
+
     def create_subwin( self ):
         self.wpending = curses.newwin(self.height-1,20,0,0) # NLines, NCols, begin_y, begin_x
         self.wpending.border()
@@ -88,10 +96,20 @@ class MyApp:
         self.subwin.append( (self.wshipped,self.wshipped_redraw) )
 
         self.wpickup = curses.newwin( 
-5,self.width-self.wpending.getmaxyx()[1], self.wshipped.getmaxyx()[0]-1, 
-self.wpending.getmaxyx()[1] )
+            5,
+            self.width-self.wpending.getmaxyx()[1], 
+            self.wshipped.getmaxyx()[0]-1, 
+            self.wpending.getmaxyx()[1] )
         self.wpickup_redraw()
         self.subwin.append( (self.wpickup,self.wpickup_redraw) )
+
+        self.wrepres = curses.newwin( 
+            self.height-self.wpickup.getmaxyx()[0]-self.wshipped.getmaxyx()[0]+1,
+            self.width-self.wpending.getmaxyx()[1],
+            self.wpickup.getmaxyx()[0]+self.wshipped.getmaxyx()[0]-2,
+            self.wpending.getmaxyx()[1] )
+        self.wrepres_redraw()
+        self.subwin.append( (self.wrepres, self.wrepres_redraw) )
 
         self.status = curses.newwin(2,self.width,self.height-1,0) # min 2 lines height!!!
 
@@ -147,6 +165,8 @@ self.wpending.getmaxyx()[1] )
               state = '(%3s)' % _shipinfo
             elif row[0] == NEACTION_EN_ATTENTE:
               state = 'w%3s ' % _shipinfo
+            elif row[1] < datetime.date.today():
+              state = '*%3s ' % _shipinfo
             else:
               state = ' %3s ' % _shipinfo
             return ' %s %4s-%s' % (state, row[2],row[3].split('/')[0] )
@@ -190,10 +210,22 @@ self.wpending.getmaxyx()[1] )
 
       
         def __pickup_caption( row ):
-            # Client Nbr , 3 last char of NNE number
-            #   return '%4s-%s' % (row[2], row[3].split('/')[0][-3:]) 
-            # Just return the customer number
-            return '%4s' % (row[2]) 
+            # Just return the customer number (and NNE count if > 1 )
+            # The occurence count is at the last position
+            return '%4s%s' % (row[2],'x%i'%row[-1] if row[-1]>1 else '')
+        def __pickup_reduce( row ):
+           """ Take a pickup collection (status, date, clie, nne, date)
+               transform it into (status, date, clie, FIRST_nne, date, NNE_COUNT_FOR_CUSTOMER """
+           # reduce to ONE row by CUSTOMER 
+           d = {}
+           for r in row:
+               if not( r[2] in d ):
+                   d[ r[2] ] = list( r ) # Append customer Data 
+                   d[ r[2] ].append( 1 ) # Add counter = 1 at last position 
+               else:
+                   d[ r[2] ][-1] = d[ r[2] ][-1] + 1 # Increment the counter
+           # Retransform in tuple
+           return [ tuple(v) for k,v in d.items() ]
         def __pickup_sorting( row ):
             # Keep number only
             _client = '0'
@@ -203,7 +235,36 @@ self.wpending.getmaxyx()[1] )
             # id_client + numerical part of the NE (50320/1)
             return int( _client ) * 1000000 + int( row[3].split('/')[0] )
         self.wpickup_redraw()
-        fill_vertical( self.wpickup, sorted( self.data['pickup'], key=__pickup_sorting ) , __pickup_caption )
+        fill_vertical( self.wpickup, sorted( __pickup_reduce(self.data['pickup']), key=__pickup_sorting ) , __pickup_caption )
+
+        def __repres_caption( row ):
+            # Just return the customer number (and NNE count if > 1)
+            # The occurence count is at the last position
+            return '%4s%s' % (row[2],'x%i'%row[-1] if row[-1]>1 else '')
+        def __repres_reduce( row ):
+            """ Take a Repres collection (status,date, clie, nne, date) 
+                and transform into (status, date, clie, FIRST_nne, date, NNE_COUNT ) """
+            # reduce to ONE row by CUSTOMER
+            d = {}
+            for r in row:
+                if not( r[2] in d ):
+                    d[ r[2] ] = list( r ) # append customer data
+                    d[ r[2] ].append( 1 ) # Add counter = 1 at the last position
+                else:
+                    d[ r[2] ][-1] = d[ r[2] ][-1] + 1 # Increment the counter
+            # retransform in tuple
+            return [ tuple(v) for v,k in d.items() ]
+
+        def __repres_sorting( row ):
+            # Keep CLIE number only
+            _client = '0'
+            for c in row[2]:
+                if c.isdigit():
+                    _client = _client + c
+            # id_client + numerical part of the NE (50320/1)
+            return int( _client ) * 1000000 + int( row[3].split('/')[0] )
+        self.wrepres_redraw()
+        fill_vertical( self.wrepres, sorted( __pickup_reduce( self.data['repres']), key=__repres_sorting ), __pickup_caption )
 
         # Update the whole screen 
         for win, redraw  in self.subwin:
