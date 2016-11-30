@@ -53,22 +53,45 @@ class MyApp:
         self._db  = DB( self._c.dbname, self._c.dbuser, self._c.dbhost, self._c.dbpasswd )
         self.data = {} # Storing the row sets (or reload_data) into a dictionnary
 
+    def wshipped_redraw(self):
+        """ redraw the subwin background """
+        self.wshipped.clear()
+        self.wshipped.border()
+        self.wshipped.addstr( 0, 2, "[ Shipped ]" )
+
+    def wpending_redraw(self):
+        """ redraw the subwin background """
+        self.wpending.clear()
+        self.wpending.border()
+        self.wpending.addstr( 0, 2, "[ Pending ]" )
+
+    def wpickup_redraw(self):
+        """ redraw the subwin background """
+        self.wpickup.clear()
+        self.wpickup.border()
+        self.wpickup.addstr( 0, 2, "[ Pickup ]" )
+
     def create_subwin( self ):
         self.wpending = curses.newwin(self.height-1,20,0,0) # NLines, NCols, begin_y, begin_x
         self.wpending.border()
         self.wpending.addstr(0,2,"[ Pending ]")
         self.wpending.addstr(1,1,"%i , %i" % self.wpending.getmaxyx() )
-        self.subwin.append( self.wpending )
+        self.subwin.append( (self.wpending,self.wpending_redraw) )
 
         #self.wpreparing = curses.newwin(19,20,0,19)
         #self.wpreparing.border()
         #self.wpreparing.addstr(0,2,"[ Prepare ]")
         #self.subwin.append( self.wpreparing )
 
-        self.wshipped = curses.newwin(19,self.width-self.wpending.getmaxyx()[1],0,self.wpending.getmaxyx()[1])
-        self.wshipped.border()
-        self.wshipped.addstr(0,2,"[ Shipped ]" )
-        self.subwin.append( self.wshipped )
+        self.wshipped = curses.newwin(16,self.width-self.wpending.getmaxyx()[1],0,self.wpending.getmaxyx()[1])
+        self.wshipped_redraw()
+        self.subwin.append( (self.wshipped,self.wshipped_redraw) )
+
+        self.wpickup = curses.newwin( 
+5,self.width-self.wpending.getmaxyx()[1], self.wshipped.getmaxyx()[0]-1, 
+self.wpending.getmaxyx()[1] )
+        self.wpickup_redraw()
+        self.subwin.append( (self.wpickup,self.wpickup_redraw) )
 
         self.status = curses.newwin(2,self.width,self.height-1,0) # min 2 lines height!!!
 
@@ -121,11 +144,11 @@ class MyApp:
         def __pending_caption(row):
             _shipinfo = '-->' if row[4].upper() == 'EXP' else row[4][0:3].lower()
             if row[0] == NEACTION_PREPARATION:
-              state = '(%s)' % _shipinfo
+              state = '(%3s)' % _shipinfo
             elif row[0] == NEACTION_EN_ATTENTE:
-              state = 'w%s ' % _shipinfo
+              state = 'w%3s ' % _shipinfo
             else:
-              state = ' %s ' % _shipinfo
+              state = ' %3s ' % _shipinfo
             return ' %s %4s-%s' % (state, row[2],row[3].split('/')[0] )
 
         def pending_sorting( row ):
@@ -137,6 +160,7 @@ class MyApp:
                  return int(row[3].split('/')[0])*-1
 
         pendings = sorted( self.data['pending']+self.data['preparing'], key=pending_sorting, reverse=True )
+        self.wpending_redraw()
         fill_vertical( self.wpending, pendings, __pending_caption ) 
         
         # Drawing preparing
@@ -152,10 +176,37 @@ class MyApp:
         def __shipping_caption(row):
             exp = exp_neaction_code( row[0] )
             return ' %4s-%s %s' % ( row[2],row[3].split('/')[0], exp )
-        fill_vertical( self.wshipped, self.data['shipped'], __shipping_caption )
+
+        def __shipping_sorting(row):
+            # Keep number only
+            _client = '0'
+            for c in row[2]:
+                if c.isdigit():
+                    _client = _client+c
+            # id_client + Numerical part of NNEtxt (50320/1)
+            return int(_client)*1000000+int(row[3].split('/')[0])
+        self.wshipped_redraw()
+        fill_vertical( self.wshipped, sorted( self.data['shipped'], key=__shipping_sorting) , __shipping_caption )
+
+      
+        def __pickup_caption( row ):
+            # Client Nbr , 3 last char of NNE number
+            #   return '%4s-%s' % (row[2], row[3].split('/')[0][-3:]) 
+            # Just return the customer number
+            return '%4s' % (row[2]) 
+        def __pickup_sorting( row ):
+            # Keep number only
+            _client = '0'
+            for c in row[2]:
+                if c.isdigit():
+                    _client = _client + c
+            # id_client + numerical part of the NE (50320/1)
+            return int( _client ) * 1000000 + int( row[3].split('/')[0] )
+        self.wpickup_redraw()
+        fill_vertical( self.wpickup, sorted( self.data['pickup'], key=__pickup_sorting ) , __pickup_caption )
 
         # Update the whole screen 
-        for win in self.subwin:
+        for win, redraw  in self.subwin:
             win.refresh()
 
     def draw_status( self, refresh_time ):
